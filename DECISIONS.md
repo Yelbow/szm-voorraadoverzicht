@@ -20,3 +20,8 @@
   added around it. Docblock comment at the top is the original spec
   comment, kept intact rather than rewritten into a doc-comment style
   guide, since it's this plugin's only design documentation.
+- 2026-09-25: Activatie op live (modernmenthongs.nl) gaf een fatale fout:
+  `Cannot redeclare szm_render_voorraadoverzicht()`. De oorspronkelijke
+  snippet stond nog actief in Code Snippets. Eerst de snippet uitzetten,
+  dan pas de plugin activeren. Er komen bewust geen `function_exists`-guards
+  bij: dan draaien snippet en plugin stil naast elkaar.
