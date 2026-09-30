@@ -202,10 +202,6 @@ function szm_render_voorraadoverzicht() {
         }
         .szm-nabestel-toggle input { vertical-align: middle; margin-right: 2px; }
         .szm-edit-actief .szm-nabestel-toggle { color: #2c3338; cursor: pointer; }
-        .szm-delen { display: none; margin-top: 4px; border-top: 1px dashed #dcdcde; padding-top: 4px; }
-        .szm-edit-actief .szm-delen { display: block; }
-        .szm-deel { padding: 2px 0; }
-        .szm-deel-label { color: #646970; font-size: 11px; }
         .szm-toolbar { margin: 12px 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
         .szm-periode-toggle { display: flex; gap: 6px; }
         .szm-periode-toggle a {
@@ -344,6 +340,7 @@ function szm_render_edit_script() {
                     data.append('action', 'szm_update_voorraad');
                     data.append('nonce', nonce);
                     data.append('variation_id', variationId);
+                    data.append('variation_ids', cel.getAttribute('data-variation-ids') || variationId);
                     data.append('voorraad', nieuweWaarde);
 
                     fetch(ajaxurl, {
@@ -409,6 +406,7 @@ function szm_render_edit_script() {
                 data.append('action', 'szm_update_nabestellingen');
                 data.append('nonce', nonce);
                 data.append('variation_id', variationId);
+                    data.append('variation_ids', cel.getAttribute('data-variation-ids') || variationId);
                 data.append('toegestaan', nieuweWaarde);
 
                 fetch(ajaxurl, {
@@ -793,7 +791,13 @@ function szm_render_tabel($producten) {
                     $cel = $maten[$maat];
                     $verkocht_klasse = ($cel['verkocht'] > 0) ? ' class="szm-verkocht-plus"' : '';
                     $variation_ids = $cel['variation_ids'] ?? [];
-                    $bewerkbaar = (count($variation_ids) === 1 && is_numeric($cel['voorraad']));
+                    $delen = $cel['delen'] ?? [];
+                    // Bewerkbaar zodra elke onderliggende variatie een numerieke voorraad heeft. Bij een
+                    // samengevoegde cel (one size + M, NL + EN) werkt één waarde en één NB-vinkje op alle variaties.
+                    $bewerkbaar = ($variation_ids && count($delen) === count($variation_ids));
+                    foreach ($delen as $deel) {
+                        if (!is_numeric($deel['voorraad'])) $bewerkbaar = false;
+                    }
                     $status_symbool = '';
                     if (!empty($cel['alle_uitverkocht'])) {
                         $status_symbool = '<span class="szm-uitverkocht-symbool" title="Permanent uitverkocht">🚫</span>';
@@ -803,31 +807,20 @@ function szm_render_tabel($producten) {
                     $status_span = '<span class="szm-status-symbool">' . $status_symbool . '</span>';
 
                     if ($bewerkbaar) {
-                        $vid = $variation_ids[0];
-                        $nb_toegestaan = !empty($cel['nabestellingen_toegestaan']) ? '1' : '0';
-                        echo '<td class="szm-editable-voorraad" data-variation-id="' . esc_attr($vid) . '" data-voorraad="' . esc_attr($cel['voorraad']) . '" data-nabestellingen="' . esc_attr($nb_toegestaan) . '">';
-                        echo '<span class="szm-voorraad-waarde">' . esc_html($cel['voorraad']) . '</span> / <span' . $verkocht_klasse . '>' . esc_html($cel['verkocht']) . '</span> ' . $status_span;
+                        // Variaties in een cel horen dezelfde voorraad te hebben (gesynct): zijn de waarden gelijk,
+                        // toon die waarde. Verschillen ze, toon de som (zoals voorheen).
+                        $waarden = array_map(function($d) { return (int) $d['voorraad']; }, $delen);
+                        $getoond = (count(array_unique($waarden)) === 1) ? $waarden[0] : array_sum($waarden);
+                        $nb_toegestaan = '1';
+                        foreach ($delen as $deel) {
+                            if (empty($deel['nb'])) $nb_toegestaan = '0';
+                        }
+                        echo '<td class="szm-editable-voorraad" data-variation-id="' . esc_attr($variation_ids[0]) . '" data-variation-ids="' . esc_attr(implode(',', $variation_ids)) . '" data-voorraad="' . esc_attr($getoond) . '" data-nabestellingen="' . esc_attr($nb_toegestaan) . '">';
+                        echo '<span class="szm-voorraad-waarde">' . esc_html($getoond) . '</span> / <span' . $verkocht_klasse . '>' . esc_html($cel['verkocht']) . '</span> ' . $status_span;
                         echo '<label class="szm-nabestel-toggle" title="Nabestellingen toestaan"><input type="checkbox" class="szm-nabestel-checkbox" disabled' . checked($nb_toegestaan === '1', true, false) . ' /> NB</label>';
                         echo '</td>';
                     } else {
-                        echo '<td>' . esc_html($cel['voorraad']) . ' / <span' . $verkocht_klasse . '>' . esc_html($cel['verkocht']) . '</span> ' . $status_span;
-                        // Samengevoegde cel (bv. one size + M): zelfde weergave als altijd, maar in bewerkmodus
-                        // verschijnt per onderliggende variatie een eigen bewerkbare regel.
-                        if (count($variation_ids) > 1) {
-                            echo '<div class="szm-delen">';
-                            foreach ($cel['delen'] as $deel) {
-                                if (!is_numeric($deel['voorraad'])) continue;
-                                $d_nb = $deel['nb'] ? '1' : '0';
-                                $d_symbool = $deel['uitverkocht'] ? '<span class="szm-uitverkocht-symbool" title="Permanent uitverkocht">🚫</span>' : ($deel['loopt_leeg'] ? '<span class="szm-loopt-leeg-symbool" title="Laatste voorraad, geen nabestellingen">⚠️</span>' : '');
-                                echo '<div class="szm-editable-voorraad szm-deel" data-variation-id="' . esc_attr($deel['id']) . '" data-voorraad="' . esc_attr($deel['voorraad']) . '" data-nabestellingen="' . esc_attr($d_nb) . '">';
-                                echo '<span class="szm-deel-label">' . esc_html($deel['label'] !== '' ? $deel['label'] : '#' . $deel['id']) . '</span> ';
-                                echo '<span class="szm-voorraad-waarde">' . esc_html($deel['voorraad']) . '</span> / <span' . ($deel['verkocht'] > 0 ? ' class="szm-verkocht-plus"' : '') . '>' . esc_html($deel['verkocht']) . '</span> <span class="szm-status-symbool">' . $d_symbool . '</span>';
-                                echo '<label class="szm-nabestel-toggle" title="Nabestellingen toestaan"><input type="checkbox" class="szm-nabestel-checkbox" disabled' . checked($d_nb === '1', true, false) . ' /> NB</label>';
-                                echo '</div>';
-                            }
-                            echo '</div>';
-                        }
-                        echo '</td>';
+                        echo '<td>' . esc_html($cel['voorraad']) . ' / <span' . $verkocht_klasse . '>' . esc_html($cel['verkocht']) . '</span> ' . $status_span . '</td>';
                     }
                 } else {
                     echo '<td class="szm-leeg">-</td>';
@@ -848,6 +841,17 @@ function szm_render_tabel($producten) {
     echo '</tbody></table></div>';
 }
 
+// Leest de variatie-id's uit het verzoek. Een samengevoegde cel (bv. one size + M, of NL + EN)
+// stuurt alle onderliggende id's mee: die horen dezelfde voorraad/NB te hebben en worden samen bijgewerkt.
+function szm_lees_variatie_ids() {
+    $ruw = isset($_POST['variation_ids']) ? sanitize_text_field(wp_unslash($_POST['variation_ids'])) : '';
+    $ids = array_filter(array_map('absint', explode(',', $ruw)));
+    if (!$ids && isset($_POST['variation_id'])) {
+        $ids = [absint($_POST['variation_id'])];
+    }
+    return array_values(array_unique(array_filter($ids)));
+}
+
 add_action('wp_ajax_szm_update_voorraad', 'szm_update_voorraad');
 
 function szm_update_voorraad() {
@@ -857,37 +861,38 @@ function szm_update_voorraad() {
         wp_send_json_error(['message' => 'Geen toegang.'], 403);
     }
 
-    $variation_id = isset($_POST['variation_id']) ? absint($_POST['variation_id']) : 0;
+    $ids = szm_lees_variatie_ids();
     $voorraad = isset($_POST['voorraad']) ? intval($_POST['voorraad']) : null;
 
-    if (!$variation_id || $voorraad === null || $voorraad < 0) {
+    if (!$ids || $voorraad === null || $voorraad < 0) {
         wp_send_json_error(['message' => 'Ongeldige waarde.'], 400);
     }
 
-    $variatie = wc_get_product($variation_id);
-    if (!$variatie || $variatie->get_type() !== 'variation') {
-        wp_send_json_error(['message' => 'Variatie niet gevonden.'], 404);
+    foreach ($ids as $variation_id) {
+        $variatie = wc_get_product($variation_id);
+        if (!$variatie || $variatie->get_type() !== 'variation') {
+            wp_send_json_error(['message' => 'Variatie niet gevonden (id=' . $variation_id . ').'], 404);
+        }
+        if (!$variatie->managing_stock()) {
+            wp_send_json_error(['message' => 'Voorraadbeheer staat uit voor deze variant (id=' . $variation_id . ').'], 400);
+        }
+
+        // Voorraadbeheer op parent-niveau: opslaan op de variatie wordt dan genegeerd. Zelfde
+        // omschakeling naar eigen voorraadbeheer als bij de NB-toggle.
+        if ($variatie->get_manage_stock() === 'parent') {
+            $variatie->set_manage_stock(true);
+        }
+        $variatie->set_stock_quantity($voorraad);
+        $variatie->save();
+
+        clean_post_cache($variation_id);
+        $variatie = wc_get_product($variation_id);
+        if ((int) $variatie->get_stock_quantity() !== $voorraad) {
+            wp_send_json_error(['message' => 'Voorraad kon niet worden opgeslagen (id=' . $variation_id . ', beheer=' . var_export($variatie->get_manage_stock(), true) . ', nu=' . var_export($variatie->get_stock_quantity(), true) . ').'], 409);
+        }
     }
 
-    if (!$variatie->managing_stock()) {
-        wp_send_json_error(['message' => 'Voorraadbeheer staat uit voor deze variant.'], 400);
-    }
-
-    // Voorraadbeheer op parent-niveau: opslaan op de variatie wordt dan genegeerd. Zelfde
-    // omschakeling naar eigen voorraadbeheer als bij de NB-toggle.
-    if ($variatie->get_manage_stock() === 'parent') {
-        $variatie->set_manage_stock(true);
-    }
-    $variatie->set_stock_quantity($voorraad);
-    $variatie->save();
-
-    clean_post_cache($variation_id);
-    $variatie = wc_get_product($variation_id);
-    if ((int) $variatie->get_stock_quantity() !== $voorraad) {
-        wp_send_json_error(['message' => 'Voorraad kon niet worden opgeslagen (id=' . $variation_id . ', beheer=' . var_export($variatie->get_manage_stock(), true) . ', nu=' . var_export($variatie->get_stock_quantity(), true) . ').'], 409);
-    }
-
-    wp_send_json_success(['voorraad' => $variatie->get_stock_quantity()]);
+    wp_send_json_success(['voorraad' => $voorraad]);
 }
 
 add_action('wp_ajax_szm_update_nabestellingen', 'szm_update_nabestellingen');
@@ -899,77 +904,79 @@ function szm_update_nabestellingen() {
         wp_send_json_error(['message' => 'Geen toegang.'], 403);
     }
 
-    $variation_id = isset($_POST['variation_id']) ? absint($_POST['variation_id']) : 0;
+    $ids = szm_lees_variatie_ids();
     $toegestaan = isset($_POST['toegestaan']) ? sanitize_text_field($_POST['toegestaan']) : '';
 
-    if (!$variation_id || !in_array($toegestaan, ['0', '1'], true)) {
+    if (!$ids || !in_array($toegestaan, ['0', '1'], true)) {
         wp_send_json_error(['message' => 'Ongeldige waarde.'], 400);
     }
 
-    $variatie = wc_get_product($variation_id);
-    if (!$variatie || $variatie->get_type() !== 'variation') {
-        wp_send_json_error(['message' => 'Variatie niet gevonden.'], 404);
-    }
-
-    if (!$variatie->managing_stock()) {
-        wp_send_json_error(['message' => 'Voorraadbeheer staat uit voor deze variant.'], 400);
-    }
-
-    // Voorraadbeheer op parent-niveau: WooCommerce erft dan backorders van de parent en negeert
-    // de instelling op de variatie. Voor een per-variatie NB-toggle schakelen we deze variatie
-    // over op eigen voorraadbeheer, met de huidige (parent-)voorraad als startwaarde.
-    $was_parent_beheerd = ($variatie->get_manage_stock() === 'parent');
-    if ($was_parent_beheerd) {
-        $huidige_voorraad = $variatie->get_stock_quantity();
-        $variatie->set_manage_stock(true);
-        $variatie->set_stock_quantity(is_numeric($huidige_voorraad) ? (int) $huidige_voorraad : 0);
-    }
-
-    // "notify" (nabestellen met klant informeren) wordt via deze toggle niet apart
-    // ondersteund, en valt hiermee terug op simpel aan/uit.
-    $variatie->set_backorders($toegestaan === '1' ? 'yes' : 'no');
-    $variatie->save();
-
-    // Vertaalplugins (Polylang/WPML) houden variaties per taal in sync en kunnen een wijziging
-    // vanuit de vertaling terugzetten. Zet daarom alle vertalingen van deze variatie op dezelfde waarde.
     $gewenst = ($toegestaan === '1') ? 'yes' : 'no';
-    $vertalingen = [];
-    if (function_exists('pll_get_post_translations')) {
-        $vertalingen = array_map('intval', array_values(pll_get_post_translations($variation_id)));
-    } elseif (has_filter('wpml_element_has_translations') || defined('ICL_SITEPRESS_VERSION')) {
-        $trid = apply_filters('wpml_element_trid', null, $variation_id, 'post_product_variation');
-        $rijen = $trid ? apply_filters('wpml_get_element_translations', [], $trid, 'post_product_variation') : [];
-        foreach ((array) $rijen as $rij) {
-            $vertalingen[] = (int) $rij->element_id;
+    $voorraad_eerste = null;
+
+    foreach ($ids as $variation_id) {
+        $variatie = wc_get_product($variation_id);
+        if (!$variatie || $variatie->get_type() !== 'variation') {
+            wp_send_json_error(['message' => 'Variatie niet gevonden (id=' . $variation_id . ').'], 404);
         }
-    }
-    foreach ($vertalingen as $tr_id) {
-        if ($tr_id === $variation_id) continue;
-        $tr = wc_get_product($tr_id);
-        if ($tr && $tr->get_type() === 'variation' && $tr->get_backorders('edit') !== $gewenst) {
-            $tr->set_backorders($gewenst);
-            $tr->save();
+        if (!$variatie->managing_stock()) {
+            wp_send_json_error(['message' => 'Voorraadbeheer staat uit voor deze variant (id=' . $variation_id . ').'], 400);
+        }
+
+        // Voorraadbeheer op parent-niveau: WooCommerce erft dan backorders van de parent en negeert
+        // de instelling op de variatie. Voor een per-variatie NB-toggle schakelen we deze variatie
+        // over op eigen voorraadbeheer, met de huidige (parent-)voorraad als startwaarde.
+        if ($variatie->get_manage_stock() === 'parent') {
+            $huidige_voorraad = $variatie->get_stock_quantity();
+            $variatie->set_manage_stock(true);
+            $variatie->set_stock_quantity(is_numeric($huidige_voorraad) ? (int) $huidige_voorraad : 0);
+        }
+
+        // "notify" (nabestellen met klant informeren) wordt via deze toggle niet apart
+        // ondersteund, en valt hiermee terug op simpel aan/uit.
+        $variatie->set_backorders($gewenst);
+        $variatie->save();
+
+        // Vertaalplugins (Polylang/WPML) houden variaties per taal in sync en kunnen een wijziging
+        // vanuit de vertaling terugzetten. Zet daarom alle vertalingen van deze variatie op dezelfde waarde.
+        $vertalingen = [];
+        if (function_exists('pll_get_post_translations')) {
+            $vertalingen = array_map('intval', array_values(pll_get_post_translations($variation_id)));
+        } elseif (has_filter('wpml_element_has_translations') || defined('ICL_SITEPRESS_VERSION')) {
+            $trid = apply_filters('wpml_element_trid', null, $variation_id, 'post_product_variation');
+            $rijen = $trid ? apply_filters('wpml_get_element_translations', [], $trid, 'post_product_variation') : [];
+            foreach ((array) $rijen as $rij) {
+                $vertalingen[] = (int) $rij->element_id;
+            }
+        }
+        foreach ($vertalingen as $tr_id) {
+            if ($tr_id === $variation_id) continue;
+            $tr = wc_get_product($tr_id);
+            if ($tr && $tr->get_type() === 'variation' && $tr->get_backorders('edit') !== $gewenst) {
+                $tr->set_backorders($gewenst);
+                $tr->save();
+            }
         }
     }
 
     // Opnieuw laden en controleren of de wijziging echt is blijven staan. Zonder deze check
     // meldt de UI "gelukt" terwijl bv. een filter of overerving van de parent de waarde
     // terugzet, en springt de checkbox bij herladen weer terug.
-    clean_post_cache($variation_id);
-    $variatie = wc_get_product($variation_id);
-    if ($variatie->backorders_allowed() !== ($toegestaan === '1')) {
-        $diag = ['id=' . $variation_id, 'raw=' . get_post_meta($variation_id, '_backorders', true), 'gewenst=' . $gewenst, 'beheer=' . var_export($variatie->get_manage_stock(), true)];
-        foreach ($vertalingen as $tr_id) {
-            if ($tr_id !== $variation_id) $diag[] = 'vertaling ' . $tr_id . '=' . get_post_meta($tr_id, '_backorders', true);
+    foreach ($ids as $variation_id) {
+        clean_post_cache($variation_id);
+        $variatie = wc_get_product($variation_id);
+        if ($voorraad_eerste === null) $voorraad_eerste = $variatie->get_stock_quantity();
+        if ($variatie->backorders_allowed() !== ($toegestaan === '1')) {
+            $diag = ['id=' . $variation_id, 'raw=' . get_post_meta($variation_id, '_backorders', true), 'gewenst=' . $gewenst, 'beheer=' . var_export($variatie->get_manage_stock(), true)];
+            foreach (['woocommerce_product_variation_get_backorders', 'woocommerce_product_backorders_allowed'] as $hook) {
+                if (has_filter($hook)) $diag[] = 'filter ' . $hook;
+            }
+            wp_send_json_error(['message' => 'Nabestellingen konden niet worden opgeslagen (' . implode(', ', $diag) . '). Stuur deze melding door.'], 409);
         }
-        foreach (['woocommerce_product_variation_get_backorders', 'woocommerce_product_backorders_allowed'] as $hook) {
-            if (has_filter($hook)) $diag[] = 'filter ' . $hook;
-        }
-        wp_send_json_error(['message' => 'Nabestellingen konden niet worden opgeslagen (' . implode(', ', $diag) . '). Stuur deze melding door.'], 409);
     }
 
     wp_send_json_success([
-        'backorders_allowed' => $variatie->backorders_allowed(),
-        'voorraad' => $variatie->get_stock_quantity(),
+        'backorders_allowed' => $toegestaan === '1',
+        'voorraad' => $voorraad_eerste,
     ]);
 }
