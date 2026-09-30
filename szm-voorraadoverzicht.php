@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       SZM Voorraadoverzicht
  * Description:       Voorraadoverzicht in wp-admin: rij = product + kleur, kolom = maat, cel = voorraad / verkocht over een gekozen periode. Periode-toggle, CSV-export en een inline bewerken-modus voor eenduidig editbare cellen (precies 1 onderliggende variatie).
- * Version:           1.0.5
+ * Version:           1.0.6
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SZM_VOORRAAD_VERSION', '1.0.5' );
+define( 'SZM_VOORRAAD_VERSION', '1.0.6' );
 
 /**
  * Self-updates through WordPress's native Plugins/Updates screen — no
@@ -795,7 +795,8 @@ function szm_render_tabel($producten) {
                     $nb = $cel['nb'] ?? [];
                     if ($nb) {
                         $aantal_aan = count(array_filter($nb));
-                        $nb_status = ($aantal_aan === count($nb)) ? '1' : (($aantal_aan === 0) ? '0' : 'mixed');
+                        // Aangevinkt alleen als ALLE onderliggende varianten nabestellen toestaan; bij een mix staat het vinkje uit en zet een klik alles aan.
+                        $nb_status = ($aantal_aan === count($nb)) ? '1' : '0';
                         $nb_ids = implode(',', array_keys($nb));
                         $nb_html = '<label class="szm-nabestel-toggle" title="Nabestellingen toestaan' . (count($nb) > 1 ? ' (geldt voor ' . count($nb) . ' samengevoegde varianten)' : '') . '"><input type="checkbox" class="szm-nabestel-checkbox" disabled' . checked($nb_status === '1', true, false) . ' /> NB</label>';
                         $nb_attrs = ' data-variation-ids="' . esc_attr($nb_ids) . '" data-nabestellingen="' . esc_attr($nb_status) . '"';
