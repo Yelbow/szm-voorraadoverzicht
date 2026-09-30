@@ -40,3 +40,10 @@
   schakelt parent-beheerde variatie ook over op eigen beheer en verifieert na opslaan.
   NB-terugspringen op live lokaal NIET gereproduceerd (mmt, Polylang aan, ook met
   parent-voorraad: werkt). Oorzaak live onbekend, wacht op diag-melding uit live.
+
+## 2026-09-30 — 1.0.11 t/m 1.0.14
+- Extra kolommen (`L-en`, `One-size-en`) kwamen van Engelse producten, niet van de samenvoeg-code. Fix: alleen producten in de Polylang-standaardtaal tonen (`szm_alleen_standaardtaal`).
+- Samengevoegde cel (one size + M) = 1 waarde + 1 NB-vinkje, wijzigt alle variaties erin (`variation_ids`). Geen sub-regels: gebruiker wil geen extra rijen/streepjes, kolommen exact als 1.0.4.
+- Parent-beheerde voorraad: opslaan op variatie wordt genegeerd; handlers schakelen over op eigen beheer en controleren na opslaan (409 met diagnose).
+- 1.0.14: verkocht telde EN-bestellingen niet mee (variatie-id -> NL-id via Polylang), `wc_get_orders` gaf ook OrderRefund-objecten terug (`type => shop_order` nodig), terugbetalingen worden afgetrokken, voorraad-edit zet vertalingen expliciet gelijk.
+- Live NB-terugspringen niet lokaal te reproduceren; nodig: exacte alert-tekst van live na update.
