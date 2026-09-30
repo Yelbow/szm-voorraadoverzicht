@@ -25,3 +25,12 @@
   snippet stond nog actief in Code Snippets. Eerst de snippet uitzetten,
   dan pas de plugin activeren. Er komen bewust geen `function_exists`-guards
   bij: dan draaien snippet en plugin stil naast elkaar.
+- 2026-09-30: Updates op live kwamen niet aan ("up to date"): PUC pakt GitHub's
+  *latest release* vóór tags, en alleen v1.0.1 had een Release. Elke versie
+  krijgt nu ook `gh release create vX.Y.Z --latest`. Volgorde: bump `Version:` +
+  `SZM_VOORRAAD_VERSION`, commit, tag, push main+tag, gh release.
+- 2026-09-30: NB-checkbox werd op live niet onthouden: variaties met
+  voorraadbeheer op parent-niveau erven `backorders` van de parent, dus
+  `set_backorders()` op de variatie werd genegeerd. Handler schakelt zo'n variatie
+  nu over op eigen voorraadbeheer (met parent-voorraad als startwaarde, dus
+  voorraad kan per variatie verdubbeld lijken) en verifieert na opslaan. In 1.0.3.
