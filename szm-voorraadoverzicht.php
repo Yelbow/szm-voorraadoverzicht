@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       SZM Voorraadoverzicht
  * Description:       Voorraadoverzicht in wp-admin: rij = product + kleur, kolom = maat, cel = voorraad / verkocht over een gekozen periode. Periode-toggle, CSV-export en een inline bewerken-modus voor eenduidig editbare cellen (precies 1 onderliggende variatie).
- * Version:           1.0.8
+ * Version:           1.0.9
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SZM_VOORRAAD_VERSION', '1.0.8' );
+define( 'SZM_VOORRAAD_VERSION', '1.0.9' );
 
 /**
  * Self-updates through WordPress's native Plugins/Updates screen — no
@@ -559,6 +559,28 @@ function szm_normaliseer_maat($ruw) {
     return $map[$m] ?? ucfirst($m);
 }
 
+function szm_alleen_standaardtaal($product_ids) {
+    global $wpdb;
+    $opties = get_option('polylang');
+    $standaard = is_array($opties) && !empty($opties['default_lang']) ? $opties['default_lang'] : '';
+    if (!$standaard || !$product_ids) {
+        return $product_ids;
+    }
+
+    // Producten die aan een andere taal dan de standaardtaal hangen: overslaan. Producten zonder taal blijven staan.
+    $anders = $wpdb->get_col($wpdb->prepare(
+        "SELECT tr.object_id FROM {$wpdb->term_relationships} tr
+         JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'language'
+         JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+         WHERE t.slug <> %s",
+        $standaard
+    ));
+    if (!$anders) {
+        return $product_ids;
+    }
+    return array_values(array_diff($product_ids, array_map('intval', $anders)));
+}
+
 function szm_verzamel_productdata($verkoop_per_variatie) {
     // structuur: ['standaard' => [ product_id => [ '_naam' => .., '_thumb' => url, '_id' => id, '_datum' => 'd-m-Y', 'kleuren' => [ 'Kleur' => [ 'Maat' => ['voorraad'=>.., 'verkocht'=>.., 'variation_ids'=>[..]] ] ] ] ], 'overig' => [...]]
     // Gegroepeerd op product-ID (niet op naam), zodat producten met dezelfde naam los blijven staan.
@@ -571,6 +593,11 @@ function szm_verzamel_productdata($verkoop_per_variatie) {
         'limit'  => -1,
         'return' => 'ids',
     ]);
+
+    // Alleen producten in de standaardtaal (Polylang), anders komen vertalingen als extra rijen en
+    // extra maatkolommen ("L-en", "One-size-en") in het overzicht. Werkt ook als Polylang uit staat,
+    // want de taalkoppelingen blijven dan in de database staan.
+    $product_ids = szm_alleen_standaardtaal($product_ids);
 
     foreach ($product_ids as $product_id) {
         $product = wc_get_product($product_id);
