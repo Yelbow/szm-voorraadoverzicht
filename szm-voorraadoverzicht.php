@@ -546,6 +546,7 @@ function szm_get_verkoop_periode($sinds) {
 
     $args = [
         'status' => ['wc-completed', 'wc-processing'],
+        'type'   => 'shop_order', // zonder dit komen ook terugbetalingen (OrderRefund) mee
         'limit'  => -1,
     ];
     if ($sinds) {
@@ -571,7 +572,7 @@ function szm_get_verkoop_periode($sinds) {
                 $verkoop[$variation_id] = 0;
             }
             // Terugbetaalde aantallen (negatief) aftrekken, anders lijkt er meer verkocht dan er echt weg is.
-            $verkoop[$variation_id] += $item->get_quantity() + $order->get_qty_refunded_for_item($item->get_id());
+            $verkoop[$variation_id] += $item->get_quantity() + (method_exists($order, 'get_qty_refunded_for_item') ? $order->get_qty_refunded_for_item($item->get_id()) : 0);
         }
     }
 
