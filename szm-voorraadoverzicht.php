@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SZM_VOORRAAD_VERSION', '1.0.13' );
+define( 'SZM_VOORRAAD_VERSION', '1.0.14' );
 
 /**
  * Self-updates through WordPress's native Plugins/Updates screen — no
@@ -530,6 +530,17 @@ function szm_export_csv() {
     exit;
 }
 
+// Geeft de variatie-id in de standaardtaal (Polylang/WPML), of het eigen id als er geen vertaling is.
+function szm_standaardtaal_id($id) {
+    $opties = get_option('polylang');
+    $standaard = is_array($opties) && !empty($opties['default_lang']) ? $opties['default_lang'] : '';
+    if ($standaard && function_exists('pll_get_post')) {
+        $nl = pll_get_post($id, $standaard);
+        if ($nl) return (int) $nl;
+    }
+    return (int) $id;
+}
+
 function szm_get_verkoop_periode($sinds) {
     $verkoop = [];
 
@@ -542,16 +553,25 @@ function szm_get_verkoop_periode($sinds) {
     }
 
     $orders = wc_get_orders($args);
+    $basis = [];
 
     foreach ($orders as $order) {
         foreach ($order->get_items() as $item) {
             $variation_id = $item->get_variation_id();
             if (!$variation_id) continue;
 
+            // Bestelling in een andere taal (bv. EN): tel mee bij de variatie in de standaardtaal, want
+            // alleen die staat in het overzicht en NL/EN delen dezelfde voorraad.
+            if (!isset($basis[$variation_id])) {
+                $basis[$variation_id] = szm_standaardtaal_id($variation_id);
+            }
+            $variation_id = $basis[$variation_id];
+
             if (!isset($verkoop[$variation_id])) {
                 $verkoop[$variation_id] = 0;
             }
-            $verkoop[$variation_id] += $item->get_quantity();
+            // Terugbetaalde aantallen (negatief) aftrekken, anders lijkt er meer verkocht dan er echt weg is.
+            $verkoop[$variation_id] += $item->get_quantity() + $order->get_qty_refunded_for_item($item->get_id());
         }
     }
 
@@ -884,6 +904,20 @@ function szm_update_voorraad() {
         }
         $variatie->set_stock_quantity($voorraad);
         $variatie->save();
+
+        // NL en EN delen dezelfde voorraad. Polylang-WC synct dit normaal, maar staat die plugin uit
+        // (of faalt de sync) dan blijft de vertaling op de oude waarde staan. Zet ze hier expliciet gelijk.
+        if (function_exists('pll_get_post_translations')) {
+            foreach (array_map('intval', array_values(pll_get_post_translations($variation_id))) as $tr_id) {
+                if ($tr_id === $variation_id) continue;
+                $tr = wc_get_product($tr_id);
+                if ($tr && $tr->get_type() === 'variation' && $tr->managing_stock() && (int) $tr->get_stock_quantity() !== $voorraad) {
+                    if ($tr->get_manage_stock() === 'parent') $tr->set_manage_stock(true);
+                    $tr->set_stock_quantity($voorraad);
+                    $tr->save();
+                }
+            }
+        }
 
         clean_post_cache($variation_id);
         $variatie = wc_get_product($variation_id);
