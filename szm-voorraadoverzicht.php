@@ -844,6 +844,14 @@ function szm_update_nabestellingen() {
     $variatie->set_backorders($toegestaan === '1' ? 'yes' : 'no');
     $variatie->save();
 
+    // Opnieuw laden en controleren of de wijziging echt is blijven staan. Zonder deze check
+    // meldt de UI "gelukt" terwijl bv. een filter of overerving van de parent de waarde
+    // terugzet, en springt de checkbox bij herladen weer terug.
+    $variatie = wc_get_product($variation_id);
+    if ($variatie->backorders_allowed() !== ($toegestaan === '1')) {
+        wp_send_json_error(['message' => 'Nabestellingen konden niet worden opgeslagen (wordt overschreven door parent-product of een andere plugin).'], 409);
+    }
+
     wp_send_json_success([
         'backorders_allowed' => $variatie->backorders_allowed(),
         'voorraad' => $variatie->get_stock_quantity(),
