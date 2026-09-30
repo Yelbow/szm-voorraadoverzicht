@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       SZM Voorraadoverzicht
  * Description:       Voorraadoverzicht in wp-admin: rij = product + kleur, kolom = maat, cel = voorraad / verkocht over een gekozen periode. Periode-toggle, CSV-export en een inline bewerken-modus voor eenduidig editbare cellen (precies 1 onderliggende variatie).
- * Version:           1.0.4
+ * Version:           1.0.5
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SZM_VOORRAAD_VERSION', '1.0.4' );
+define( 'SZM_VOORRAAD_VERSION', '1.0.5' );
 
 /**
  * Self-updates through WordPress's native Plugins/Updates screen — no
@@ -201,6 +201,7 @@ function szm_render_voorraadoverzicht() {
             cursor: default; user-select: none;
         }
         .szm-nabestel-toggle input { vertical-align: middle; margin-right: 2px; }
+        .szm-nabestel-geen { opacity: 0.5; }
         .szm-edit-actief .szm-nabestel-toggle { color: #2c3338; cursor: pointer; }
         .szm-toolbar { margin: 12px 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
         .szm-periode-toggle { display: flex; gap: 6px; }
@@ -298,7 +299,7 @@ function szm_render_edit_script() {
             toggleBtn.textContent = editActief ? 'Bewerken uit' : 'Bewerken aan';
             toggleBtn.setAttribute('aria-pressed', editActief ? 'true' : 'false');
 
-            document.querySelectorAll('.szm-nabestel-checkbox').forEach(function(checkbox) {
+            document.querySelectorAll('.szm-nabestel-checkbox:not(.szm-nabestel-vast)').forEach(function(checkbox) {
                 checkbox.disabled = !editActief;
             });
         });
@@ -393,18 +394,25 @@ function szm_render_edit_script() {
             });
         });
 
-        document.querySelectorAll('.szm-nabestel-checkbox').forEach(function(checkbox) {
+        function zetNbWeergave(cel, checkbox, status) {
+            cel.setAttribute('data-nabestellingen', status);
+            checkbox.indeterminate = (status === 'mixed');
+            checkbox.checked = (status === '1');
+        }
+
+        document.querySelectorAll('.szm-nb-cel .szm-nabestel-checkbox').forEach(function(checkbox) {
+            var startCel = checkbox.closest('.szm-nb-cel');
+            zetNbWeergave(startCel, checkbox, startCel.getAttribute('data-nabestellingen'));
+
             checkbox.addEventListener('change', function(e) {
-                var cel = checkbox.closest('.szm-editable-voorraad');
-                var vorigeWaarde = checkbox.checked ? '0' : '1'; // waarde vóór deze toggle
+                var cel = checkbox.closest('.szm-nb-cel');
+                var vorigeStatus = cel.getAttribute('data-nabestellingen'); // status vóór deze toggle
                 var nieuweWaarde = checkbox.checked ? '1' : '0';
-                var variationId = cel.getAttribute('data-variation-id');
-                var huidigeVoorraad = cel.getAttribute('data-voorraad');
 
                 var data = new URLSearchParams();
                 data.append('action', 'szm_update_nabestellingen');
                 data.append('nonce', nonce);
-                data.append('variation_id', variationId);
+                data.append('variation_ids', cel.getAttribute('data-variation-ids'));
                 data.append('toegestaan', nieuweWaarde);
 
                 fetch(ajaxurl, {
@@ -415,13 +423,20 @@ function szm_render_edit_script() {
                 .then(leesJson)
                 .then(function(json) {
                     if (json.success) {
-                        var toegestaan = !!json.data.backorders_allowed;
-                        cel.setAttribute('data-nabestellingen', toegestaan ? '1' : '0');
-                        checkbox.checked = toegestaan;
+                        zetNbWeergave(cel, checkbox, json.data.backorders_allowed ? '1' : '0');
                         cel.classList.add('szm-flash-ok');
-                        updateStatusSymbool(cel, json.data.voorraad, toegestaan);
+                        var symbolSpan = cel.querySelector('.szm-status-symbool');
+                        if (symbolSpan) {
+                            if (json.data.status === 'uitverkocht') {
+                                symbolSpan.innerHTML = '<span class="szm-uitverkocht-symbool" title="Permanent uitverkocht">🚫</span>';
+                            } else if (json.data.status === 'loopt_leeg') {
+                                symbolSpan.innerHTML = '<span class="szm-loopt-leeg-symbool" title="Laatste voorraad, geen nabestellingen">⚠️</span>';
+                            } else {
+                                symbolSpan.innerHTML = '';
+                            }
+                        }
                     } else {
-                        checkbox.checked = (vorigeWaarde === '1');
+                        zetNbWeergave(cel, checkbox, vorigeStatus);
                         cel.classList.add('szm-flash-fout');
                         alert(json.data && json.data.message ? json.data.message : 'Opslaan mislukt.');
                     }
@@ -430,7 +445,7 @@ function szm_render_edit_script() {
                     }, 1200);
                 })
                 .catch(function(err) {
-                    checkbox.checked = (vorigeWaarde === '1');
+                    zetNbWeergave(cel, checkbox, vorigeStatus);
                     cel.classList.add('szm-flash-fout');
                     alert('Opslaan mislukt: ' + err.message);
                     setTimeout(function() {
@@ -624,7 +639,7 @@ function szm_verzamel_productdata($verkoop_per_variatie) {
             if (!isset($ruw[$groep][$product_id])) {
                 $ruw[$groep][$product_id] = ['_naam' => $naam, '_thumb' => $thumb, '_id' => $product_id, '_datum' => $datum, 'kleuren' => []];
             }
-            szm_voeg_cel_toe($ruw[$groep][$product_id]['kleuren'], $kleur_label, $maat, $voorraad, $verkocht, $variatie_id, $permanent_uitverkocht, $loopt_leeg, $nabestellingen_toegestaan);
+            szm_voeg_cel_toe($ruw[$groep][$product_id]['kleuren'], $kleur_label, $maat, $voorraad, $verkocht, $variatie_id, $permanent_uitverkocht, $loopt_leeg, $nabestellingen_toegestaan, (bool) $variatie->managing_stock());
         }
     }
 
@@ -634,7 +649,7 @@ function szm_verzamel_productdata($verkoop_per_variatie) {
 // Combineert cellen die na maat-normalisatie op dezelfde combinatie uitkomen (bv "S" en "s", of "one size" met M).
 // Elke onderliggende variatie-id wordt bijgehouden zodat een cel met precies 1 variatie bewerkbaar kan zijn,
 // en een cel met meerdere samengevoegde variaties bewust read-only blijft (niet ondubbelzinnig welke bedoeld is).
-function szm_voeg_cel_toe(&$kleuren, $kleur, $maat, $voorraad, $verkocht, $variatie_id, $permanent_uitverkocht = false, $loopt_leeg = false, $nabestellingen_toegestaan = false) {
+function szm_voeg_cel_toe(&$kleuren, $kleur, $maat, $voorraad, $verkocht, $variatie_id, $permanent_uitverkocht = false, $loopt_leeg = false, $nabestellingen_toegestaan = false, $voorraad_beheerd = false) {
     if (!isset($kleuren[$kleur][$maat])) {
         $kleuren[$kleur][$maat] = [
             'voorraad' => $voorraad,
@@ -643,6 +658,8 @@ function szm_voeg_cel_toe(&$kleuren, $kleur, $maat, $voorraad, $verkocht, $varia
             'alle_uitverkocht' => $permanent_uitverkocht,
             'alle_loopt_leeg' => $loopt_leeg,
             'nabestellingen_toegestaan' => $nabestellingen_toegestaan,
+            // NB-status per variatie met voorraadbeheer (alleen die kunnen nabestellingen aan/uit krijgen)
+            'nb' => $voorraad_beheerd ? [$variatie_id => (bool) $nabestellingen_toegestaan] : [],
         ];
         return;
     }
@@ -664,6 +681,11 @@ function szm_voeg_cel_toe(&$kleuren, $kleur, $maat, $voorraad, $verkocht, $varia
     $alle_uitverkocht = $bestaand['alle_uitverkocht'] && $permanent_uitverkocht;
     $alle_loopt_leeg = $bestaand['alle_loopt_leeg'] && $loopt_leeg;
 
+    $nb = $bestaand['nb'];
+    if ($voorraad_beheerd) {
+        $nb[$variatie_id] = (bool) $nabestellingen_toegestaan;
+    }
+
     $kleuren[$kleur][$maat] = [
         'voorraad' => $nieuwe_voorraad,
         'verkocht'  => $bestaand['verkocht'] + $verkocht,
@@ -671,6 +693,7 @@ function szm_voeg_cel_toe(&$kleuren, $kleur, $maat, $voorraad, $verkocht, $varia
         'alle_uitverkocht' => $alle_uitverkocht,
         'alle_loopt_leeg' => $alle_loopt_leeg,
         'nabestellingen_toegestaan' => $bestaand['nabestellingen_toegestaan'],
+        'nb' => $nb,
     ];
 }
 
@@ -768,15 +791,27 @@ function szm_render_tabel($producten) {
                     }
                     $status_span = '<span class="szm-status-symbool">' . $status_symbool . '</span>';
 
+                    // NB-checkbox: geldt voor alle onderliggende variaties met voorraadbeheer, ook bij samengevoegde cellen.
+                    $nb = $cel['nb'] ?? [];
+                    if ($nb) {
+                        $aantal_aan = count(array_filter($nb));
+                        $nb_status = ($aantal_aan === count($nb)) ? '1' : (($aantal_aan === 0) ? '0' : 'mixed');
+                        $nb_ids = implode(',', array_keys($nb));
+                        $nb_html = '<label class="szm-nabestel-toggle" title="Nabestellingen toestaan' . (count($nb) > 1 ? ' (geldt voor ' . count($nb) . ' samengevoegde varianten)' : '') . '"><input type="checkbox" class="szm-nabestel-checkbox" disabled' . checked($nb_status === '1', true, false) . ' /> NB</label>';
+                        $nb_attrs = ' data-variation-ids="' . esc_attr($nb_ids) . '" data-nabestellingen="' . esc_attr($nb_status) . '"';
+                    } else {
+                        $nb_html = '<label class="szm-nabestel-toggle szm-nabestel-geen" title="Voorraadbeheer staat uit voor deze variant, nabestellingen zijn hier niet in te stellen"><input type="checkbox" class="szm-nabestel-checkbox szm-nabestel-vast" disabled /> NB</label>';
+                        $nb_attrs = '';
+                    }
+
                     if ($bewerkbaar) {
                         $vid = $variation_ids[0];
-                        $nb_toegestaan = !empty($cel['nabestellingen_toegestaan']) ? '1' : '0';
-                        echo '<td class="szm-editable-voorraad" data-variation-id="' . esc_attr($vid) . '" data-voorraad="' . esc_attr($cel['voorraad']) . '" data-nabestellingen="' . esc_attr($nb_toegestaan) . '">';
+                        echo '<td class="szm-editable-voorraad szm-nb-cel" data-variation-id="' . esc_attr($vid) . '" data-voorraad="' . esc_attr($cel['voorraad']) . '"' . $nb_attrs . '>';
                         echo '<span class="szm-voorraad-waarde">' . esc_html($cel['voorraad']) . '</span> / <span' . $verkocht_klasse . '>' . esc_html($cel['verkocht']) . '</span> ' . $status_span;
-                        echo '<label class="szm-nabestel-toggle" title="Nabestellingen toestaan"><input type="checkbox" class="szm-nabestel-checkbox" disabled' . checked($nb_toegestaan === '1', true, false) . ' /> NB</label>';
+                        echo $nb_html;
                         echo '</td>';
                     } else {
-                        echo '<td>' . esc_html($cel['voorraad']) . ' / <span' . $verkocht_klasse . '>' . esc_html($cel['verkocht']) . '</span> ' . $status_span . '</td>';
+                        echo '<td' . ($nb ? ' class="szm-nb-cel"' : '') . $nb_attrs . '>' . esc_html($cel['voorraad']) . ' / <span' . $verkocht_klasse . '>' . esc_html($cel['verkocht']) . '</span> ' . $status_span . $nb_html . '</td>';
                     }
                 } else {
                     echo '<td class="szm-leeg">-</td>';
@@ -830,34 +865,21 @@ function szm_update_voorraad() {
 
 add_action('wp_ajax_szm_update_nabestellingen', 'szm_update_nabestellingen');
 
-function szm_update_nabestellingen() {
-    check_ajax_referer('szm_voorraad_edit', 'nonce');
-
-    if (!current_user_can('manage_woocommerce')) {
-        wp_send_json_error(['message' => 'Geen toegang.'], 403);
-    }
-
-    $variation_id = isset($_POST['variation_id']) ? absint($_POST['variation_id']) : 0;
-    $toegestaan = isset($_POST['toegestaan']) ? sanitize_text_field($_POST['toegestaan']) : '';
-
-    if (!$variation_id || !in_array($toegestaan, ['0', '1'], true)) {
-        wp_send_json_error(['message' => 'Ongeldige waarde.'], 400);
-    }
-
+// Zet nabestellingen aan/uit voor 1 variatie. Geeft null terug bij succes, anders een foutmelding.
+function szm_zet_nabestelling_variatie($variation_id, $toegestaan) {
     $variatie = wc_get_product($variation_id);
     if (!$variatie || $variatie->get_type() !== 'variation') {
-        wp_send_json_error(['message' => 'Variatie niet gevonden.'], 404);
+        return 'Variatie ' . $variation_id . ' niet gevonden.';
     }
 
     if (!$variatie->managing_stock()) {
-        wp_send_json_error(['message' => 'Voorraadbeheer staat uit voor deze variant.'], 400);
+        return 'Voorraadbeheer staat uit voor variatie ' . $variation_id . '.';
     }
 
     // Voorraadbeheer op parent-niveau: WooCommerce erft dan backorders van de parent en negeert
     // de instelling op de variatie. Voor een per-variatie NB-toggle schakelen we deze variatie
     // over op eigen voorraadbeheer, met de huidige (parent-)voorraad als startwaarde.
-    $was_parent_beheerd = ($variatie->get_manage_stock() === 'parent');
-    if ($was_parent_beheerd) {
+    if ($variatie->get_manage_stock() === 'parent') {
         $huidige_voorraad = $variatie->get_stock_quantity();
         $variatie->set_manage_stock(true);
         $variatie->set_stock_quantity(is_numeric($huidige_voorraad) ? (int) $huidige_voorraad : 0);
@@ -865,16 +887,16 @@ function szm_update_nabestellingen() {
 
     // "notify" (nabestellen met klant informeren) wordt via deze toggle niet apart
     // ondersteund, en valt hiermee terug op simpel aan/uit.
-    $variatie->set_backorders($toegestaan === '1' ? 'yes' : 'no');
+    $gewenst = $toegestaan ? 'yes' : 'no';
+    $variatie->set_backorders($gewenst);
     $variatie->save();
 
     // Vertaalplugins (Polylang/WPML) houden variaties per taal in sync en kunnen een wijziging
     // vanuit de vertaling terugzetten. Zet daarom alle vertalingen van deze variatie op dezelfde waarde.
-    $gewenst = ($toegestaan === '1') ? 'yes' : 'no';
     $vertalingen = [];
     if (function_exists('pll_get_post_translations')) {
         $vertalingen = array_map('intval', array_values(pll_get_post_translations($variation_id)));
-    } elseif (has_filter('wpml_element_has_translations') || defined('ICL_SITEPRESS_VERSION')) {
+    } elseif (defined('ICL_SITEPRESS_VERSION')) {
         $trid = apply_filters('wpml_element_trid', null, $variation_id, 'post_product_variation');
         $rijen = $trid ? apply_filters('wpml_get_element_translations', [], $trid, 'post_product_variation') : [];
         foreach ((array) $rijen as $rij) {
@@ -895,7 +917,7 @@ function szm_update_nabestellingen() {
     // terugzet, en springt de checkbox bij herladen weer terug.
     clean_post_cache($variation_id);
     $variatie = wc_get_product($variation_id);
-    if ($variatie->backorders_allowed() !== ($toegestaan === '1')) {
+    if ($variatie->backorders_allowed() !== (bool) $toegestaan) {
         $diag = ['id=' . $variation_id, 'raw=' . get_post_meta($variation_id, '_backorders', true), 'gewenst=' . $gewenst, 'beheer=' . var_export($variatie->get_manage_stock(), true)];
         foreach ($vertalingen as $tr_id) {
             if ($tr_id !== $variation_id) $diag[] = 'vertaling ' . $tr_id . '=' . get_post_meta($tr_id, '_backorders', true);
@@ -903,11 +925,55 @@ function szm_update_nabestellingen() {
         foreach (['woocommerce_product_variation_get_backorders', 'woocommerce_product_backorders_allowed'] as $hook) {
             if (has_filter($hook)) $diag[] = 'filter ' . $hook;
         }
-        wp_send_json_error(['message' => 'Nabestellingen konden niet worden opgeslagen (' . implode(', ', $diag) . '). Stuur deze melding door.'], 409);
+        return 'Nabestellingen konden niet worden opgeslagen (' . implode(', ', $diag) . '). Stuur deze melding door.';
+    }
+
+    return null;
+}
+
+function szm_update_nabestellingen() {
+    check_ajax_referer('szm_voorraad_edit', 'nonce');
+
+    if (!current_user_can('manage_woocommerce')) {
+        wp_send_json_error(['message' => 'Geen toegang.'], 403);
+    }
+
+    // Eén of meer variaties (samengevoegde cel): variation_ids = "1,2,3"; variation_id blijft ondersteund.
+    $ruwe_ids = isset($_POST['variation_ids']) ? (string) wp_unslash($_POST['variation_ids']) : (isset($_POST['variation_id']) ? (string) wp_unslash($_POST['variation_id']) : '');
+    $variation_ids = array_values(array_unique(array_filter(array_map('absint', explode(',', $ruwe_ids)))));
+    $toegestaan = isset($_POST['toegestaan']) ? sanitize_text_field($_POST['toegestaan']) : '';
+
+    if (!$variation_ids || !in_array($toegestaan, ['0', '1'], true)) {
+        wp_send_json_error(['message' => 'Ongeldige waarde.'], 400);
+    }
+
+    foreach ($variation_ids as $variation_id) {
+        $fout = szm_zet_nabestelling_variatie($variation_id, $toegestaan === '1');
+        if ($fout !== null) {
+            wp_send_json_error(['message' => $fout], 409);
+        }
+    }
+
+    $alle_toegestaan = true;
+    $alle_uitverkocht = true;
+    $alle_loopt_leeg = true;
+    $voorraad = null;
+    foreach ($variation_ids as $variation_id) {
+        $variatie = wc_get_product($variation_id);
+        $toegestaan_nu = $variatie->backorders_allowed();
+        $op_voorraad = $variatie->is_in_stock();
+        $alle_toegestaan = $alle_toegestaan && $toegestaan_nu;
+        $alle_uitverkocht = $alle_uitverkocht && (!$op_voorraad && !$toegestaan_nu);
+        $alle_loopt_leeg = $alle_loopt_leeg && ($op_voorraad && !$toegestaan_nu);
+        $stock = $variatie->get_stock_quantity();
+        if (is_numeric($stock)) {
+            $voorraad = ($voorraad === null) ? (int) $stock : $voorraad + (int) $stock;
+        }
     }
 
     wp_send_json_success([
-        'backorders_allowed' => $variatie->backorders_allowed(),
-        'voorraad' => $variatie->get_stock_quantity(),
+        'backorders_allowed' => $alle_toegestaan,
+        'voorraad' => $voorraad,
+        'status' => $alle_uitverkocht ? 'uitverkocht' : ($alle_loopt_leeg ? 'loopt_leeg' : ''),
     ]);
 }
