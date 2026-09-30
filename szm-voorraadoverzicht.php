@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       SZM Voorraadoverzicht
  * Description:       Voorraadoverzicht in wp-admin: rij = product + kleur, kolom = maat, cel = voorraad / verkocht over een gekozen periode. Periode-toggle, CSV-export en een inline bewerken-modus voor eenduidig editbare cellen (precies 1 onderliggende variatie).
- * Version:           1.0.2
+ * Version:           1.0.3
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SZM_VOORRAAD_VERSION', '1.0.2' );
+define( 'SZM_VOORRAAD_VERSION', '1.0.3' );
 
 /**
  * Self-updates through WordPress's native Plugins/Updates screen — no
@@ -853,6 +853,16 @@ function szm_update_nabestellingen() {
         wp_send_json_error(['message' => 'Voorraadbeheer staat uit voor deze variant.'], 400);
     }
 
+    // Voorraadbeheer op parent-niveau: WooCommerce erft dan backorders van de parent en negeert
+    // de instelling op de variatie. Voor een per-variatie NB-toggle schakelen we deze variatie
+    // over op eigen voorraadbeheer, met de huidige (parent-)voorraad als startwaarde.
+    $was_parent_beheerd = ($variatie->get_manage_stock() === 'parent');
+    if ($was_parent_beheerd) {
+        $huidige_voorraad = $variatie->get_stock_quantity();
+        $variatie->set_manage_stock(true);
+        $variatie->set_stock_quantity(is_numeric($huidige_voorraad) ? (int) $huidige_voorraad : 0);
+    }
+
     // "notify" (nabestellen met klant informeren) wordt via deze toggle niet apart
     // ondersteund, en valt hiermee terug op simpel aan/uit.
     $variatie->set_backorders($toegestaan === '1' ? 'yes' : 'no');
@@ -863,7 +873,7 @@ function szm_update_nabestellingen() {
     // terugzet, en springt de checkbox bij herladen weer terug.
     $variatie = wc_get_product($variation_id);
     if ($variatie->backorders_allowed() !== ($toegestaan === '1')) {
-        wp_send_json_error(['message' => 'Nabestellingen konden niet worden opgeslagen (wordt overschreven door parent-product of een andere plugin).'], 409);
+        wp_send_json_error(['message' => 'Nabestellingen konden niet worden opgeslagen (waarschijnlijk overschreven door een andere plugin of filter).'], 409);
     }
 
     wp_send_json_success([
