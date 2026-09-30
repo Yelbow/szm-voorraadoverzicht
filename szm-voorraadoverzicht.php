@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       SZM Voorraadoverzicht
  * Description:       Voorraadoverzicht in wp-admin: rij = product + kleur, kolom = maat, cel = voorraad / verkocht over een gekozen periode. Periode-toggle, CSV-export en een inline bewerken-modus voor eenduidig editbare cellen (precies 1 onderliggende variatie).
- * Version:           1.0.3
+ * Version:           1.0.4
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SZM_VOORRAAD_VERSION', '1.0.3' );
+define( 'SZM_VOORRAAD_VERSION', '1.0.4' );
 
 /**
  * Self-updates through WordPress's native Plugins/Updates screen — no
@@ -868,12 +868,42 @@ function szm_update_nabestellingen() {
     $variatie->set_backorders($toegestaan === '1' ? 'yes' : 'no');
     $variatie->save();
 
+    // Vertaalplugins (Polylang/WPML) houden variaties per taal in sync en kunnen een wijziging
+    // vanuit de vertaling terugzetten. Zet daarom alle vertalingen van deze variatie op dezelfde waarde.
+    $gewenst = ($toegestaan === '1') ? 'yes' : 'no';
+    $vertalingen = [];
+    if (function_exists('pll_get_post_translations')) {
+        $vertalingen = array_map('intval', array_values(pll_get_post_translations($variation_id)));
+    } elseif (has_filter('wpml_element_has_translations') || defined('ICL_SITEPRESS_VERSION')) {
+        $trid = apply_filters('wpml_element_trid', null, $variation_id, 'post_product_variation');
+        $rijen = $trid ? apply_filters('wpml_get_element_translations', [], $trid, 'post_product_variation') : [];
+        foreach ((array) $rijen as $rij) {
+            $vertalingen[] = (int) $rij->element_id;
+        }
+    }
+    foreach ($vertalingen as $tr_id) {
+        if ($tr_id === $variation_id) continue;
+        $tr = wc_get_product($tr_id);
+        if ($tr && $tr->get_type() === 'variation' && $tr->get_backorders('edit') !== $gewenst) {
+            $tr->set_backorders($gewenst);
+            $tr->save();
+        }
+    }
+
     // Opnieuw laden en controleren of de wijziging echt is blijven staan. Zonder deze check
     // meldt de UI "gelukt" terwijl bv. een filter of overerving van de parent de waarde
     // terugzet, en springt de checkbox bij herladen weer terug.
+    clean_post_cache($variation_id);
     $variatie = wc_get_product($variation_id);
     if ($variatie->backorders_allowed() !== ($toegestaan === '1')) {
-        wp_send_json_error(['message' => 'Nabestellingen konden niet worden opgeslagen (waarschijnlijk overschreven door een andere plugin of filter).'], 409);
+        $diag = ['id=' . $variation_id, 'raw=' . get_post_meta($variation_id, '_backorders', true), 'gewenst=' . $gewenst, 'beheer=' . var_export($variatie->get_manage_stock(), true)];
+        foreach ($vertalingen as $tr_id) {
+            if ($tr_id !== $variation_id) $diag[] = 'vertaling ' . $tr_id . '=' . get_post_meta($tr_id, '_backorders', true);
+        }
+        foreach (['woocommerce_product_variation_get_backorders', 'woocommerce_product_backorders_allowed'] as $hook) {
+            if (has_filter($hook)) $diag[] = 'filter ' . $hook;
+        }
+        wp_send_json_error(['message' => 'Nabestellingen konden niet worden opgeslagen (' . implode(', ', $diag) . '). Stuur deze melding door.'], 409);
     }
 
     wp_send_json_success([
