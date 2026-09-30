@@ -265,6 +265,18 @@ function szm_render_edit_script() {
         var wrap = document.querySelector('.wrap');
         var nonce = '<?php echo esc_js($nonce); ?>';
 
+        // Leest een AJAX-antwoord als JSON. Bij een niet-JSON antwoord (verlopen nonce = "-1",
+        // WAF/cache-pagina, PHP-fout) een duidelijke fout gooien in plaats van stil te falen.
+        function leesJson(res) {
+            return res.text().then(function(tekst) {
+                try {
+                    return JSON.parse(tekst);
+                } catch (err) {
+                    throw new Error('Server antwoordde met HTTP ' + res.status + ' en geen geldig JSON' + (res.status === 403 ? ' (sessie/nonce verlopen? herlaad de pagina)' : '') + '.');
+                }
+            });
+        }
+
         function updateStatusSymbool(cel, voorraadWaarde, nabestellingenToegestaan) {
             var symbolSpan = cel.querySelector('.szm-status-symbool');
             if (!symbolSpan) return;
@@ -335,7 +347,7 @@ function szm_render_edit_script() {
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         body: data.toString()
                     })
-                    .then(function(res) { return res.json(); })
+                    .then(leesJson)
                     .then(function(json) {
                         if (json.success) {
                             cel.setAttribute('data-voorraad', json.data.voorraad);
@@ -352,9 +364,10 @@ function szm_render_edit_script() {
                             cel.classList.remove('szm-flash-ok', 'szm-flash-fout');
                         }, 1200);
                     })
-                    .catch(function() {
+                    .catch(function(err) {
                         span.textContent = huidigeWaarde;
                         cel.classList.add('szm-flash-fout');
+                        alert('Opslaan mislukt: ' + err.message);
                         setTimeout(function() {
                             cel.classList.remove('szm-flash-fout');
                         }, 1200);
@@ -399,7 +412,7 @@ function szm_render_edit_script() {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: data.toString()
                 })
-                .then(function(res) { return res.json(); })
+                .then(leesJson)
                 .then(function(json) {
                     if (json.success) {
                         var toegestaan = !!json.data.backorders_allowed;
@@ -416,9 +429,10 @@ function szm_render_edit_script() {
                         cel.classList.remove('szm-flash-ok', 'szm-flash-fout');
                     }, 1200);
                 })
-                .catch(function() {
+                .catch(function(err) {
                     checkbox.checked = (vorigeWaarde === '1');
                     cel.classList.add('szm-flash-fout');
+                    alert('Opslaan mislukt: ' + err.message);
                     setTimeout(function() {
                         cel.classList.remove('szm-flash-fout');
                     }, 1200);
