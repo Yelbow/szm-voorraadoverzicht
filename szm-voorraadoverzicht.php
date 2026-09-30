@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       SZM Voorraadoverzicht
  * Description:       Voorraadoverzicht in wp-admin: rij = product + kleur, kolom = maat, cel = voorraad / verkocht over een gekozen periode. Periode-toggle, CSV-export en een inline bewerken-modus voor eenduidig editbare cellen (precies 1 onderliggende variatie).
- * Version:           1.0.12
+ * Version:           1.0.13
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SZM_VOORRAAD_VERSION', '1.0.12' );
+define( 'SZM_VOORRAAD_VERSION', '1.0.13' );
 
 /**
  * Self-updates through WordPress's native Plugins/Updates screen — no
