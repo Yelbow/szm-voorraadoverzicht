@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       SZM Voorraadoverzicht
  * Description:       Voorraadoverzicht in wp-admin: rij = product + kleur, kolom = maat, cel = voorraad / verkocht over een gekozen periode. Periode-toggle, CSV-export en een inline bewerken-modus voor eenduidig editbare cellen (precies 1 onderliggende variatie).
- * Version:           1.0.10
+ * Version:           1.0.11
  * Requires at least: 5.9
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SZM_VOORRAAD_VERSION', '1.0.10' );
+define( 'SZM_VOORRAAD_VERSION', '1.0.11' );
 
 /**
  * Self-updates through WordPress's native Plugins/Updates screen — no
@@ -202,6 +202,10 @@ function szm_render_voorraadoverzicht() {
         }
         .szm-nabestel-toggle input { vertical-align: middle; margin-right: 2px; }
         .szm-edit-actief .szm-nabestel-toggle { color: #2c3338; cursor: pointer; }
+        .szm-delen { display: none; margin-top: 4px; border-top: 1px dashed #dcdcde; padding-top: 4px; }
+        .szm-edit-actief .szm-delen { display: block; }
+        .szm-deel { padding: 2px 0; }
+        .szm-deel-label { color: #646970; font-size: 11px; }
         .szm-toolbar { margin: 12px 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
         .szm-periode-toggle { display: flex; gap: 6px; }
         .szm-periode-toggle a {
@@ -624,7 +628,7 @@ function szm_verzamel_productdata($verkoop_per_variatie) {
             if (!isset($ruw[$groep][$product_id])) {
                 $ruw[$groep][$product_id] = ['_naam' => $naam, '_thumb' => $thumb, '_id' => $product_id, '_datum' => $datum, 'kleuren' => []];
             }
-            szm_voeg_cel_toe($ruw[$groep][$product_id]['kleuren'], $kleur_label, $maat, $voorraad, $verkocht, $variatie_id, $permanent_uitverkocht, $loopt_leeg, $nabestellingen_toegestaan);
+            szm_voeg_cel_toe($ruw[$groep][$product_id]['kleuren'], $kleur_label, $maat, $voorraad, $verkocht, $variatie_id, $permanent_uitverkocht, $loopt_leeg, $nabestellingen_toegestaan, trim((string) $maat_ruw));
         }
     }
 
@@ -634,7 +638,8 @@ function szm_verzamel_productdata($verkoop_per_variatie) {
 // Combineert cellen die na maat-normalisatie op dezelfde combinatie uitkomen (bv "S" en "s", of "one size" met M).
 // Elke onderliggende variatie-id wordt bijgehouden zodat een cel met precies 1 variatie bewerkbaar kan zijn,
 // en een cel met meerdere samengevoegde variaties bewust read-only blijft (niet ondubbelzinnig welke bedoeld is).
-function szm_voeg_cel_toe(&$kleuren, $kleur, $maat, $voorraad, $verkocht, $variatie_id, $permanent_uitverkocht = false, $loopt_leeg = false, $nabestellingen_toegestaan = false) {
+function szm_voeg_cel_toe(&$kleuren, $kleur, $maat, $voorraad, $verkocht, $variatie_id, $permanent_uitverkocht = false, $loopt_leeg = false, $nabestellingen_toegestaan = false, $maat_label = '') {
+    $deel = ['id' => $variatie_id, 'label' => $maat_label, 'voorraad' => $voorraad, 'verkocht' => $verkocht, 'uitverkocht' => $permanent_uitverkocht, 'loopt_leeg' => $loopt_leeg, 'nb' => $nabestellingen_toegestaan];
     if (!isset($kleuren[$kleur][$maat])) {
         $kleuren[$kleur][$maat] = [
             'voorraad' => $voorraad,
@@ -643,6 +648,7 @@ function szm_voeg_cel_toe(&$kleuren, $kleur, $maat, $voorraad, $verkocht, $varia
             'alle_uitverkocht' => $permanent_uitverkocht,
             'alle_loopt_leeg' => $loopt_leeg,
             'nabestellingen_toegestaan' => $nabestellingen_toegestaan,
+            'delen' => [$deel],
         ];
         return;
     }
@@ -671,6 +677,7 @@ function szm_voeg_cel_toe(&$kleuren, $kleur, $maat, $voorraad, $verkocht, $varia
         'alle_uitverkocht' => $alle_uitverkocht,
         'alle_loopt_leeg' => $alle_loopt_leeg,
         'nabestellingen_toegestaan' => $bestaand['nabestellingen_toegestaan'],
+        'delen' => array_merge($bestaand['delen'], in_array($variatie_id, $bestaand['variation_ids'], true) ? [] : [$deel]),
     ];
 }
 
@@ -776,7 +783,24 @@ function szm_render_tabel($producten) {
                         echo '<label class="szm-nabestel-toggle" title="Nabestellingen toestaan"><input type="checkbox" class="szm-nabestel-checkbox" disabled' . checked($nb_toegestaan === '1', true, false) . ' /> NB</label>';
                         echo '</td>';
                     } else {
-                        echo '<td>' . esc_html($cel['voorraad']) . ' / <span' . $verkocht_klasse . '>' . esc_html($cel['verkocht']) . '</span> ' . $status_span . '</td>';
+                        echo '<td>' . esc_html($cel['voorraad']) . ' / <span' . $verkocht_klasse . '>' . esc_html($cel['verkocht']) . '</span> ' . $status_span;
+                        // Samengevoegde cel (bv. one size + M): zelfde weergave als altijd, maar in bewerkmodus
+                        // verschijnt per onderliggende variatie een eigen bewerkbare regel.
+                        if (count($variation_ids) > 1) {
+                            echo '<div class="szm-delen">';
+                            foreach ($cel['delen'] as $deel) {
+                                if (!is_numeric($deel['voorraad'])) continue;
+                                $d_nb = $deel['nb'] ? '1' : '0';
+                                $d_symbool = $deel['uitverkocht'] ? '<span class="szm-uitverkocht-symbool" title="Permanent uitverkocht">🚫</span>' : ($deel['loopt_leeg'] ? '<span class="szm-loopt-leeg-symbool" title="Laatste voorraad, geen nabestellingen">⚠️</span>' : '');
+                                echo '<div class="szm-editable-voorraad szm-deel" data-variation-id="' . esc_attr($deel['id']) . '" data-voorraad="' . esc_attr($deel['voorraad']) . '" data-nabestellingen="' . esc_attr($d_nb) . '">';
+                                echo '<span class="szm-deel-label">' . esc_html($deel['label'] !== '' ? $deel['label'] : '#' . $deel['id']) . '</span> ';
+                                echo '<span class="szm-voorraad-waarde">' . esc_html($deel['voorraad']) . '</span> / <span' . ($deel['verkocht'] > 0 ? ' class="szm-verkocht-plus"' : '') . '>' . esc_html($deel['verkocht']) . '</span> <span class="szm-status-symbool">' . $d_symbool . '</span>';
+                                echo '<label class="szm-nabestel-toggle" title="Nabestellingen toestaan"><input type="checkbox" class="szm-nabestel-checkbox" disabled' . checked($d_nb === '1', true, false) . ' /> NB</label>';
+                                echo '</div>';
+                            }
+                            echo '</div>';
+                        }
+                        echo '</td>';
                     }
                 } else {
                     echo '<td class="szm-leeg">-</td>';
@@ -822,8 +846,19 @@ function szm_update_voorraad() {
         wp_send_json_error(['message' => 'Voorraadbeheer staat uit voor deze variant.'], 400);
     }
 
+    // Voorraadbeheer op parent-niveau: opslaan op de variatie wordt dan genegeerd. Zelfde
+    // omschakeling naar eigen voorraadbeheer als bij de NB-toggle.
+    if ($variatie->get_manage_stock() === 'parent') {
+        $variatie->set_manage_stock(true);
+    }
     $variatie->set_stock_quantity($voorraad);
     $variatie->save();
+
+    clean_post_cache($variation_id);
+    $variatie = wc_get_product($variation_id);
+    if ((int) $variatie->get_stock_quantity() !== $voorraad) {
+        wp_send_json_error(['message' => 'Voorraad kon niet worden opgeslagen (id=' . $variation_id . ', beheer=' . var_export($variatie->get_manage_stock(), true) . ', nu=' . var_export($variatie->get_stock_quantity(), true) . ').'], 409);
+    }
 
     wp_send_json_success(['voorraad' => $variatie->get_stock_quantity()]);
 }

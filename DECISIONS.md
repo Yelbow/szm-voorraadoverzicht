@@ -34,3 +34,9 @@
   `set_backorders()` op de variatie werd genegeerd. Handler schakelt zo'n variatie
   nu over op eigen voorraadbeheer (met parent-voorraad als startwaarde, dus
   voorraad kan per variatie verdubbeld lijken) en verifieert na opslaan. In 1.0.3.
+- 2026-09-30: 1.0.11 = exact 1.0.4-kolommen/-weergave, plus: (a) samengevoegde cellen
+  (one size + M) tonen in bewerkmodus per variatie een eigen regel met voorraad + NB
+  (verborgen buiten bewerkmodus, dus geen extra rij/streepje); (b) voorraad-handler
+  schakelt parent-beheerde variatie ook over op eigen beheer en verifieert na opslaan.
+  NB-terugspringen op live lokaal NIET gereproduceerd (mmt, Polylang aan, ook met
+  parent-voorraad: werkt). Oorzaak live onbekend, wacht op diag-melding uit live.
