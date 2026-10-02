@@ -34,3 +34,22 @@ Problem, in the user's own words (verbatim, in order said):
 > LIVE STAAT OP 1.0.4
 
 > EEN OPLOSSING DIE DE KOLOMMEN EXACT ZO HOUD ALS 1.0.4 IS DAT DUIDELIJK
+
+## 2026-10-02
+
+Source: Todo-Dashboard Inbox, verbatim (typos kept), plus chat the same day.
+
+> zonder layout of visueel te veranderen addition to plugin op naam click auto selecteer hele naam en copy to clipboard. zelfde geld voor postcode '[postcode klant weggelaten, publieke repo]' en voor huisnummer. ook voor emailadres hoef geen mail-to. gewoon copy on click.
+
+> als we dan toch bezi zijn denk ik dat een soort ecommercee-suite. of szm-woo-extended of szm-woo-suite wordt. dna kunnen we meteen statussen toevoegen zoals. ingepakt&klaar voor verzending. -- aangemeld bij pakketdienst  dat soort dingen
+
+> szm-woo-suite. combined with the voorraad manager
+
+> szm-woo-suite as new folder that absorbs but prefer to keep the current git connections and rename if possible so that it deosnt break my wordpress connections
+
+> we need the full rename once in the future anyway tbh. so better tho the whole sjeblam at once
+
+> its the live version of MMT which you dont touch
+
+Context screenshot (order screen, contains customer data, so NOT stored in this public repo): `~/Documents/Todo-Dashboard/archive/recordings-2026-10-02/` (Pasted image 20261002091802.png).
+
